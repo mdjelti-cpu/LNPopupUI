@@ -1,0 +1,100 @@
+name: Build & Package LNPopupUI IPA
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-ipa:
+    name: Build & Package Unsigned IPA
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout Repository with Submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Select Xcode Version
+        run: |
+          echo "Available Xcode installations:"
+          ls -d /Applications/Xcode* || true
+          for xcode in \
+            "/Applications/Xcode_16.2.app" \
+            "/Applications/Xcode_16.1.app" \
+            "/Applications/Xcode_16.0.app" \
+            "/Applications/Xcode_16.app" \
+            "/Applications/Xcode_15.4.app" \
+            "/Applications/Xcode.app"; do
+            if [ -d "$xcode" ]; then
+              echo "Selecting $xcode..."
+              sudo xcode-select -s "$xcode/Contents/Developer"
+              break
+            fi
+          done
+          xcodebuild -version
+
+      - name: Resolve Swift Package Dependencies
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -project LNPopupUIExample/LNPopupUIExample.xcodeproj \
+            -clonedSourcePackagesDirPath SourcePackages
+
+      - name: Build LNPopupUIExample App Bundle
+        run: |
+          set -e
+          echo "Building LNPopupUIExample for generic iOS device..."
+          xcodebuild clean build \
+            -project LNPopupUIExample/LNPopupUIExample.xcodeproj \
+            -scheme LNPopupUIExample \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            -clonedSourcePackagesDirPath SourcePackages \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_ENTITLEMENTS="" \
+            DEVELOPMENT_TEAM="" \
+            PROVISIONING_PROFILE_SPECIFIER=""
+
+      - name: Package .app into .ipa
+        run: |
+          set -e
+          APP_DIR=$(find build/Build/Products/Release-iphoneos -name "*.app" -type d | head -n 1)
+          if [ -z "$APP_DIR" ] || [ ! -d "$APP_DIR" ]; then
+            echo "❌ Error: App bundle not found in build directory!"
+            exit 1
+          fi
+          echo "Found compiled app bundle at: $APP_DIR"
+          
+          mkdir -p Payload
+          cp -R "$APP_DIR" Payload/
+          zip -qr LNPopupUIExample.ipa Payload
+          rm -rf Payload
+          
+          echo "✅ Successfully created LNPopupUIExample.ipa"
+          ls -lh LNPopupUIExample.ipa
+
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LNPopupUIExample-IPA
+          path: LNPopupUIExample.ipa
+          retention-days: 30
+
+      - name: Create GitHub Release
+        if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG_NAME="v1.0.$(date +'%Y%m%d%H%M%S')"
+          gh release create "$TAG_NAME" LNPopupUIExample.ipa \
+            --title "LNPopupUI $TAG_NAME (Untouched Original Demo)" \
+            --notes "Untouched original demo app compiled from LeoNatan/LNPopupUI repository into an unsigned IPA for sideloading (TrollStore, AltStore, Feather, Scarlet, Sideloadly)."
