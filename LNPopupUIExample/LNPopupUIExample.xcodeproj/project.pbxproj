@@ -487,8 +487,8 @@
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/siteline/swiftui-introspect";
 			requirement = {
-				kind = exactVersion;
-				version = 26.0.2;
+				branch = main;
+				kind = branch;
 			};
 		};
 		394E1AAA276C137400C5BE31 /* XCRemoteSwiftPackageReference "ActivityView" */ = {
